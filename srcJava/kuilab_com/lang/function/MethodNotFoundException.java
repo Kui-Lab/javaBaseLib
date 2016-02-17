@@ -1,4 +1,4 @@
-package kuilab_com.xJava.function;
+package kuilab_com.lang.function;
 
 import kuilab_com.KuilabErrorResource;
 

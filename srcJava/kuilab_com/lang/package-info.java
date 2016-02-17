@@ -5,4 +5,4 @@
  * @author kui.
  *
  */
-package kuilab_com.xJava;
+package kuilab_com.lang;
