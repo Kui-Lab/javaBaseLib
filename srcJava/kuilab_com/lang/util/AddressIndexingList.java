@@ -8,7 +8,7 @@ import java.util.ListIterator;
  * <pre>
  * 对于某些类，他们的{@code equals()}方法对于不同实例会返回true，
  * 而且无法扩展以实现所需的细节比较。
- * 因为{@link ArrayList}使用{@code equals()}方法而不是“==”来比较对象。
+ * 因为{@link ArrayList}使用{@link Object#equals()}方法而不是“==”来比较对象。
  * 所以{@link ArrayList}无法正常区别他们，也就不能正确的执行查找与删除等操作。
  * 这个类就是使用“==”来比较对象的{@link ArrayList}。
  * Java中的“==”是比较对象内存地址。

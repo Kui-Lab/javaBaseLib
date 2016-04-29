@@ -2,15 +2,15 @@ package kuilab_com.lang.function;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.WeakHashMap;
 import java.util.function.Function;
 
+import kuilab_com.lang.util.AddressIndexingList;
 import sun.reflect.MethodAccessor;
-import kuilab_com.KuilabErrorResource;
 
 
 public class MethodSupplementer {
@@ -31,14 +31,38 @@ public class MethodSupplementer {
 		return stk.get( stk.size()-1 ) ;
 	}
 	
+	public static void setDaemon( Daemon daemon_ ){
+		if( Objects.isNull( daemon_ ) )
+			daemon_ = idleDaemon ;
+		daemon = daemon_ ;
+	}
+	/**监控可能出错的运行情况。**/
+	public interface Daemon{
+		/**发生了移除不在顶部的条目的行为。不在顶部，即不是最后一个被调用。逻辑错误的可能性比较大。**/
+		Object removeNotAtTop( InvocationInfo removing, List<InvocationInfo> stack, Thread thread ) ;
+		/**发生了移除不存在的条目的行为。**/
+		Object removeNonexistent( InvocationInfo removing, List<InvocationInfo> stack, Thread thread ) ;
+		/**发生了递归调用（包括非直接的）。仅当attentionRecurrence()返回true时会通知。**/
+		Object recurrence( InvocationInfo invoking, List<InvocationInfo> stack, Thread thread ) ;
+		/**递归调用是否通知**/
+		boolean attentionRecurrence() ;
+	}
+	protected static Daemon idleDaemon = new Daemon(){
+		public Object removeNotAtTop( InvocationInfo removing, List<InvocationInfo> stack, Thread thread ){ return null; } ;
+		public Object removeNonexistent( InvocationInfo removing, List<InvocationInfo> stack, Thread thread ){ return null; } ;
+		public Object recurrence( InvocationInfo invoking, List<InvocationInfo> stack, Thread thread ){ return null; } ;
+		public boolean attentionRecurrence(){ return false ; } ;
+	} ;
+	protected static Daemon daemon = idleDaemon ;
 	/**<pre>
-	 * 只有通过{@link kuilab_com.lang.function }中的工具类
+	 * 正在执行的函数可以获取它本身的对象引用。
+	 * 但只有通过{@link kuilab_com.lang.function }中的工具类
 	 * （{@link MethodWrapper}或{@link OverloadedMethod}）
 	 * 造出的Method实例可以获取方法对象本身的引用。
 	 * 这个方法的调用，必须在函数体中的第一句，
 	 * 否则不能保证获取的方法就是当前调用的方法。
-	 * 在被传出本身所在函数体后调用的Lambda中，也不能获取。
-	 * 除非是 
+	 * 因为如果执行其它语句，引发新的包装方法执行，
+	 * getCurrentMethod()将会得到最后执行的那个方法引用。
 	 * </pre>
 	 * @return
 	 */
@@ -50,7 +74,7 @@ public class MethodSupplementer {
 	public static Method getCurrentMethod( Thread thread ){
 		InvocationInfo top = getTopInvocation( thread ) ;
 		if( top != null )
-			return top.getMethod() ;
+			return (Method) top.getMethod() ;
 		return null ;
 	}
 	
@@ -72,36 +96,35 @@ public class MethodSupplementer {
 		
 	protected static int noteInvocation( InvocationInfo ii ){
 		Thread curThd = Thread.currentThread() ;
-		List<InvocationInfo> infs ;
-		if( ! map.containsKey( curThd ) ){
-			infs = new ArrayList<InvocationInfo>(1) ;
-			infs.add( ii ) ;
-			map.put( curThd, infs ) ;
-			return 1 ;
+		List<InvocationInfo> stack ;
+		synchronized ( map ) {
+			if( ! map.containsKey( curThd ) ){
+				stack = new AddressIndexingList<InvocationInfo>( 0 ) ;
+				map.put( curThd, stack ) ;
+			}else
+				stack = map.get( curThd ) ;
 		}
-		infs =  map.get( curThd ) ;
-		infs.add( ii ) ;
-		return infs.size() ;
+		if( stack.indexOf( ii ) != -1 ){//发生递归，包括非直接的递归。
+			daemon.recurrence( ii, stack, curThd ) ;
+		}
+		synchronized( stack ){
+			stack.add( ii ) ;
+		}
+		return stack.size() ;
 	}
 	
 	@SuppressWarnings("unchecked")
 	public static List<InvocationInfo> getStack( Thread thread ){
-		List<InvocationInfo> stack = map.get( thread ) ;
-		if( stack instanceof ArrayList<?> )
-			return (List<InvocationInfo>)((ArrayList<?>)stack).clone() ;
-		return stack ;
+		if( map.containsKey( thread ) ){
+			List<InvocationInfo> stack = map.get( thread ) ;
+			if( stack instanceof ArrayList<?> )
+				return (List<InvocationInfo>)((ArrayList<?>)stack).clone() ;
+			return stack ;
+		}else
+			return null ;
 	}
 
-	public static Object removeInvocation( Function<?, ?> function ){
-		InvocationInfo info = new InvocationInfo( function, null ) ;
-		return removeInvocation( info, Thread.currentThread() );
-	}
-	public static Object removeInvocation( Function<?, ?> function, Thread thread ){
-		InvocationInfo info = new InvocationInfo( function, null ) ;
-		return removeInvocation( info, thread );
-	}
-	 
-	public static Object removeInvocation( Method method ){//TODO remove(),改名为rmStack
+	public static Object removeInvocation( Method method ){
 		return removeInvocation( method , null, null ) ;
 	}
 	public static Object removeInvocation( Method method, Object host, MethodAccessor accessor ){
@@ -111,20 +134,29 @@ public class MethodSupplementer {
 		InvocationInfo info = new InvocationInfo( host, method, accessor ) ;
 		return removeInvocation( info, thread ) ;
 	}
-	public static boolean removeInvocation( InvocationInfo info, Thread thread ){
+	public static boolean removeInvocation( InvocationInfo cur, Thread thread ){//TODO 制作InvocationInfo实例开销大。
 		List<InvocationInfo> stack = getStack( thread ) ;
-		for( InvocationInfo each : stack ){
-			if( each.equals( info ) ){
-				stack.remove( each ) ;
-				return true ;
+		synchronized( stack ){
+			if( Objects.isNull( stack) ){
+				daemon.removeNonexistent( cur, stack, thread ) ;
+				return false ;
 			}
+			int p = stack.lastIndexOf( cur ) ;
+			if( p == -1 ){
+				daemon.removeNonexistent( cur, stack, thread ) ;
+				return false ;
+			}
+			if( p != stack.size()-1 ){
+				daemon.removeNotAtTop( cur, stack, thread ) ;
+			}
+			stack.remove( p ) ;
+			return true ;
 		}
-		return false ;
 	}
 	
 	public static void cleanThread( Thread thread ){
-		map.get( thread ).clear();
-		//TODO clean()
+		if( map.containsKey( thread ) )
+			map.get( thread ).clear() ;
 	}
 	
 	public static List<Method> getMethod( Object host, String methodName ){

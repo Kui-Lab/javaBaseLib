@@ -2,16 +2,29 @@ package kuilab_com.lang.function;
 
 import java.lang.reflect.Method;
 /**<pre>
+ * JDK8的Lambda有太多限制。虽然这种办法要访问this需要多写一行代码。
+ * 
  * 使用方法：
  * 在普通函数中创建一个ClosureFunction的匿名子类，
  * 并带有一个方法，名字不是“getLambda”即可，比如：
  * {@code public Object aLambda(){} ;}。
- * 执行getLambda()方法会得到一个Method实例。
+ * 执行{@link #getLambda()}方法会得到一个Method实例。
  * 这个实例就是制作成闭包函数的aLambda函数。
  * 也可以写多个方法，然后以方法名指定一个方法来制成闭包函数。
  * 也就是{@link #getLambda(String)}
  * 
- * 示例：
+ * 如果要访问“this”对象本身，需要在外部写一个对“this”的引用。
+ * 比如：
+ * public void Test(){
+ * 	Object refThis = this ;
+ * 	Method lambda =( new ClosureFunction( ){
+ *		public Object m1( ){
+ *			System.out.print( "访问“this：”+refThis ) ;
+ *		}
+ *	} ).getLambda().invoke( null ) ;
+ * }
+ * 
+ * 一般使用示例：
  * Method lambda =( new ClosureFunction( ){
  *		public Object m1( Object arg1, int arg2 ){
  *			//执行逻辑……

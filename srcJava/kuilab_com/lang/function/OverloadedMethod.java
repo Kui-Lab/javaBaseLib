@@ -3,12 +3,8 @@ package kuilab_com.lang.function;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.WeakHashMap;
-import java.util.function.Function;
 
 import kuilab_com.lang.TypeUtil;
-import kuilab_com.lang.supplements.ProgrammingMistakenException;
 import kuilab_com.lang.supplements.ReturningException;
 import sun.reflect.MethodAccessor;
 import sun.reflect.ReflectionFactory;
@@ -100,93 +96,43 @@ public class OverloadedMethod {
 	public static Method getOverloadsAsMethod( Object host, String methodName ) throws MethodNotFoundException{
 		return getOverloadsAsMethod( host, methodName, null ) ;
 	}
-	
+	/**
+	 * 忽略没有被重载就情况，因为使用时应当使用{@link MethodWrapper#wrapMethod()}，
+	 * 由它来调用这个方法，没有重载的方法它会自己处理返回，用简单的MethodAccessor，而不是combined MethodAccessor。
+	 * **/
 	public static Method getOverloadsAsMethod( Object host, String methodName, Options opt ) throws MethodNotFoundException{
-		MethodAccessor accssBody ;
 		if( opt == null )
 			opt = (Options) DFT_option.clone_() ;
-		Method invokeBody = newInvokeBody() ;
+		Method invokeBody = MethodCopy.copyMethod( DEF_invokeBody ) ;
 		opt.setWrappMethod( invokeBody ) ;
+		@SuppressWarnings("unused")
+		MethodAccessor accssBody = null ;
 		try {
-			accssBody = combineUp( host, methodName, opt );
+			accssBody = combineUp( host, methodName, opt ) ;
 		} catch ( ReturningException e ) {
 			if( opt.forceWrapToCombined )
 				accssBody = RFLC_factory.getMethodAccessor( ( (Method) e.getReturningValue() ) ) ;
 			else
 				return ( Method ) e.getReturningValue() ;
 		}
-		invokeBody = MethodCopy.copyMethod( invokeBody, accssBody ) ;///newInvokeBody() ;
-		return invokeBody ;
+		RFLC_factory.setMethodAccessor( invokeBody, accssBody ) ;
+			//这句本该由MethodAccessor自己执行，但是它没有持有ReflectionFactory实例，所以在这里执行了。
+		return invokeBody ;//有重载的情况下必须new一个Method
 	}
 	
-	public static Function<Object[], ?> getOverloadAsFunc( Object host, String methodName ) throws Exception{
-		return getOverloadAsFunc( host, methodName, new Options() ) ;
-	}
+//	public static MethodAccessor combineUp( Object host, String methodName )
+//			throws MethodNotFoundException, ReturningException{
+//		return combineUp( host, methodName, null ) ;
+//	}//懒得给OptmzCombinedMethodAccessor加一个赋值wrapInvoker的方法，所以就不提供这个了。当然使用时依旧可以输入null。
 	/**
-	 * 
-	 * @param host
-	 * @param methodName
-	 * @param opt
-	 * @return 返回值如果定义为Function<?, ?>，则无法使用，因为apply()传任何类型都会报编译错误。<br/>
-	 * 而且因为定义的Lambda形参是{@code Object...}，所以返回的Function只能这样声明形参。
-	 * @throws Exception
-	 */
-	public static Function<Object[], ?> getOverloadAsFunc( Object host, String methodName, Options opt ) throws Exception{
-		Method m = newInvokeBody() ;
-		if( opt == null )
-			opt = new Options() ;
-		opt.setForceWrapToCombined( true ) ;
-		MethodAccessor accssBody = null ;
-				try {
-					accssBody = combineUp( host, methodName, opt );
-				} catch ( ReturningException e ) {
-					//因为刚才在选项参数设置了强制combine所以这里不会抛错，注释掉错误处理。
-//					if( opt.forceWrapToCombined )
-//						accssBody = RFLC_factory.getMethodAccessor( ( (Method) e.getReturningValue() ) ) ;
-//					else
-//						m = (Method) e.getReturningValue() ;
-				}
-				RFLC_factory.setMethodAccessor( m , accssBody ) ;
-		
-		FuncRefer funcRef = new FuncRefer() ;
-		//Method m = OverloadedMethod.getOverloadsAsMethod( host, methodName ) ;
-		Function<Object[], Object> func = ( Object...arg )->{
-			MethodSupplementer.noteInvocation( funcRef.func, m, null ) ;
-			
-			Exception er = null ;
-			try {
-				Object ret = m.invoke( null, arg ) ;
-				MethodSupplementer.removeInvocation( funcRef.func ) ;
-				return ret ;
-			} catch ( Exception e ){//IllegalArgumentException | InvocationTargetException e ) {
-				er = e ;
-			}
-
-			MethodSupplementer.removeInvocation( funcRef.func ) ;
-			try {
-				throw er ;
-			} catch ( Exception e ) {
-				e.printStackTrace() ;
-			}
-			return null ;
-		} ;
-		funcRef.func = func ;
-		return func ;
-	}
-		//protected static Map<?,?>
-		protected static class FuncRefer{
-			public Function<?,?> func ;
-			public FuncRefer(){}
-		}
-	/**
-	 * 
 	 * @param host 即Method函数体执行时的“this”所指。
 	 * @param methodName
 	 * @param opt
 	 * @return {@link MethodAccessor} 是代理真实方法的包装类，JVM在运行时为Method对象创建所需的MethodAccessor。
 	 * @throws MethodNotFoundException
-	 * @throws ReturningException 如果只找到一个重载体，那么通过抛这个错直接返回它，
-	 * 也就是Method，而不是返回一个{@link MethodAccessor}。
+	 * @throws ReturningException <pre>在forceWrapToCombined的情况下，
+	 * 如果只找到一个重载体，那么通过抛这个错直接返回它，
+	 * 也就是Method，而不是返回一个{@link OptmzCombinedMethodAccessor}。</pre>
 	 */
 	public static MethodAccessor combineUp( Object host, String methodName, Options opt ) 
 			throws MethodNotFoundException, ReturningException{
@@ -206,12 +152,9 @@ public class OverloadedMethod {
 			throw new MethodNotFoundException( methodName ) ;
 		}
 		if( mss.size() == 1 ){
-			if( opt.forceWrapToCombined ){
-				//do nothing.
-			}else
-				throw new ReturningException( mss.get( 0 ) ) ;
+			throw new ReturningException( mss.get( 0 ) ) ;
 		}
-		OptmzCombinedMethodAccessor accssBody = new OptmzCombinedMethodAccessor( host, mss, opt.wrapper ) ;
+		OptmzCombinedMethodAccessor accssBody = new OptmzCombinedMethodAccessor( host, mss, opt.wrapper, opt ) ;
 		return accssBody ;
 	}
 	

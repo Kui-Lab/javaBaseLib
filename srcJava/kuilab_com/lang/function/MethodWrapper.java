@@ -1,16 +1,11 @@
 package kuilab_com.lang.function;
 
-import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
-import java.util.Map;
-import java.util.WeakHashMap;
-import java.util.function.Function;
 
 import kuilab_com.KuilabErrorResource;
 import sun.reflect.MethodAccessor;
-import sun.reflect.ReflectionFactory;
 
 public class MethodWrapper {
 //	public static void setReflectionFactory( ReflectionFactory reflectionFactory ){
@@ -18,6 +13,15 @@ public class MethodWrapper {
 //	}
 //	protected static ReflectionFactory rf = ReflectionFactory.getReflectionFactory() ;
 
+	/**
+	 * 将执行方法的对象（即{@link Method#invoke()方法的第一个参数）预先装入Method对象，<br/>
+	 * 这样Method即可无需执行主体对象即可执行，实现函数式编程。
+	 * @param host
+	 * @param methodName 如果指定的方法名具有多个重载体，则会将他们封装成一个。
+	 * @return 无需对象即可执行的Method实例。
+	 * @throws MethodNotFoundException
+	 * @throws TypeMismatchException
+	 */
 	public static Method wrapMethod( Object host, String methodName ) throws MethodNotFoundException, TypeMismatchException{//
 		Method m = null ;
 		List<Method> lm = MethodSupplementer.getMethod( host, methodName ) ;
@@ -37,9 +41,10 @@ public class MethodWrapper {
 			throw new TypeMismatchException( 
 					KuilabErrorResource.classAndMethodTypeMismatch( host, method ) ) ;
 		}
-		method.setAccessible( true ) ;
-		WrappingMethodAccessor accss = new WrappingMethodAccessor( host, method ) ;
-		Method ret = MethodCopy.copyMethod( method, accss ) ;
+		method.setAccessible( true ) ;//这句可能多余%%
+		Method ret = MethodCopy.copyMethod( method ) ;
+		WrappingMethodAccessor accss = new WrappingMethodAccessor( host, method, ret ) ;
+		MethodCopy.rf.setMethodAccessor( ret, accss ) ;
 		return ret ;
 	}
 	
@@ -89,12 +94,13 @@ class WrappingMethodAccessor implements MethodAccessor {
 		
 		//TODO 改用方法。
 		public Object host ;
-		public Method method ;
+		public Method wrappr ;
+		public Method actual ;
 		
-		public WrappingMethodAccessor( Object host, Method m  ){
+		public WrappingMethodAccessor( Object host, Method actual, Method wrapper ){
 			this.host = host ;
-			this.method = m ;
-			//this.maActual = maActual ;
+			this.wrappr = wrapper ;
+			this.actual = actual ;
 			//map.put( m, ma ) ;
 		}
 			
@@ -107,11 +113,11 @@ class WrappingMethodAccessor implements MethodAccessor {
 				throws IllegalArgumentException, InvocationTargetException {
 			try {
 				////如果直接调用原来的那个MethodAccessor，会报NullPointerException。所以只能这样，或者复制Method对象。
-				MethodSupplementer.noteInvocation( method, host, this ) ;
-				//MethodWrapper.RF.setMethodAccessor( recd.method , maActual );
-				Object ret = method.invoke( host, args ) ;
+				MethodSupplementer.noteInvocation( wrappr, host, this ) ;
+				//MethodWrapper.RF.setMethodAccessor( recd.wrapr , maActual );
+				Object ret = actual.invoke( host, args ) ;
 				//MethodWrapper.RF.setMethodAccessor( method , this );
-				MethodSupplementer.noteInvocation( method, host, this ) ;
+				MethodSupplementer.removeInvocation( wrappr, host, this ) ;
 				return ret ;
 			} catch ( IllegalAccessException e ) {
 				throw new InvocationTargetException( e ) ;
