@@ -2,13 +2,11 @@
 JavaBaseLib( Functional Programming )
  by 夔堂.
 [官网：kuilab.com](http://www.kuilab.com) 。有更多文档。
-##
-目前主要包含的内容：
-函数式编程工具包（闭包、Lambda等）。
+##目前主要包含的内容：
+<pre>函数式编程工具包（闭包、Lambda等）。
 最大的优点是产生的闭包对象是SDK原生类Method，
 对于调用闭包函数的代码没有侵入性！且无需JDK/JRE8。
-可以优雅的实现事件机制。
-（官方SDK中一直没有提供的事件发送者实现，这是程序员Java一大痛，而我们也将尽快提供一个）。
+可以优雅的实现事件机制。</pre>
 ```Java
 Method f = MethodWrapper.wrapMethod( foo, methodName ) ;//制作函数体
 f.invoke( null, arg ) ;//方法对象可任意传递并执行，且无需再输入第一个参数。
